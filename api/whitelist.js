@@ -1,30 +1,31 @@
-// api/whitelist.js  (Vercel serverless function)
-// Env vars to set in Vercel dashboard:
-//   SIGN_SECRET     = any long random string (must match SECRET in the Lua client)
-//   PREMIUM_SCRIPT  = (optional) the Lua source only whitelisted users receive
+// api/whitelist.js
 const crypto = require("crypto");
 
 const WHITELIST = ["NULL_99907"];
 
-// Custom cipher (same map as client, inverted automatically for decrypt)
-const ENC = {
-	a:"q",b:"w",c:"e",d:"r",e:"t",f:"y",g:"u",h:"i",i:"o",j:"p",
-	k:"a",l:"s",m:"d",n:"f",o:"g",p:"h",q:"j",r:"k",s:"l",t:"z",
-	u:"x",v:"c",w:"v",x:"b",y:"n",z:"m",
-	A:"Q",B:"W",C:"E",D:"R",E:"T",F:"Y",G:"U",H:"I",I:"O",J:"P",
-	K:"A",L:"S",M:"D",N:"F",O:"G",P:"H",Q:"J",R:"K",S:"L",T:"Z",
-	U:"X",V:"C",W:"V",X:"B",Y:"N",Z:"M",
-	"0":"5","1":"6","2":"7","3":"8","4":"9",
-	"5":"0","6":"1","7":"2","8":"3","9":"4",
-};
-const DEC = Object.fromEntries(Object.entries(ENC).map(([k, v]) => [v, k]));
+// ---- cipher (no key, fixed substitution) ----
+const P = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const C = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM5678901234";
+const ENC = {}, DEC = {};
+for (let i = 0; i < P.length; i++) { ENC[P[i]] = C[i]; DEC[C[i]] = P[i]; }
+const enc = (s) => s.split("").map((c) => ENC[c] || c).join("");
+const dec = (s) => s.split("").map((c) => DEC[c] || c).join("");
 
-const mapStr = (s, map) => [...s].map((c) => map[c] || c).join("");
+const ALPHA = P;
 
+// 34 random chars + 1 checksum char, first 17 chars cipher-encoded
 function makeToken() {
-	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	const bytes = crypto.randomBytes(35);
-	let t = "";
-	for (let i = 0; i < 35; i++) t += chars[bytes[i] % chars.length];
-	return t;
+	let raw = "";
+	for (let i = 0; i < 34; i++) raw += ALPHA[crypto.randomInt(ALPHA.length)];
+	let sum = 0;
+	for (let i = 0; i < raw.length; i++) sum += raw.charCodeAt(i);
+	raw += ALPHA[sum % ALPHA.length];
+	return enc(raw.slice(0, 17)) + raw.slice(17); // 35 chars
 }
+
+// ---- proof: must match the Lua side exactly ----
+function proof(nonce, access, status, token) {
+	const s = [nonce, String(access), status, token].join("|");
+	const rev = s.split("").reverse().join("");
+	let out = "";
+	for (let i = 1; i <= rev.length; i++) {
