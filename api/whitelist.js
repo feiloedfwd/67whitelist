@@ -1,31 +1,30 @@
-// api/whitelist.js
-const crypto = require("crypto");
-
-const WHITELIST = ["NULL_99907"];
-
-// ---- cipher (no key, fixed substitution) ----
-const P = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const C = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM5678901234";
-const ENC = {}, DEC = {};
-for (let i = 0; i < P.length; i++) { ENC[P[i]] = C[i]; DEC[C[i]] = P[i]; }
-const enc = (s) => s.split("").map((c) => ENC[c] || c).join("");
-const dec = (s) => s.split("").map((c) => DEC[c] || c).join("");
-
-const ALPHA = P;
-
-// 34 random chars + 1 checksum char, first 17 chars cipher-encoded
-function makeToken() {
-	let raw = "";
-	for (let i = 0; i < 34; i++) raw += ALPHA[crypto.randomInt(ALPHA.length)];
-	let sum = 0;
-	for (let i = 0; i < raw.length; i++) sum += raw.charCodeAt(i);
-	raw += ALPHA[sum % ALPHA.length];
-	return enc(raw.slice(0, 17)) + raw.slice(17); // 35 chars
+		Proof: proof(nonce, access, status, token),
+	});
 }
 
-// ---- proof: must match the Lua side exactly ----
-function proof(nonce, access, status, token) {
-	const s = [nonce, String(access), status, token].join("|");
-	const rev = s.split("").reverse().join("");
-	let out = "";
-	for (let i = 1; i <= rev.length; i++) {
+export default function handler(req, res) {
+	if (req.method !== "POST") return res.status(405).json({ error: "no" });
+
+	let body = req.body;
+	if (typeof body === "string") {
+		try { body = JSON.parse(body); } catch { body = null; }
+	}
+	const { u, n, t } = body || {};
+
+	if (typeof u !== "string" || typeof n !== "string" || typeof t !== "number")
+		return res.status(400).json({ error: "bad" });
+	if (!/^[A-Za-z0-9]{16}$/.test(n) || u.length > 40)
+		return res.status(400).json({ error: "bad" });
+
+	if (Math.abs(Date.now() / 1000 - t) > 60)
+		return res.status(400).json({ error: "expired" });
+	if (nonceUsed(n))
+		return res.status(400).json({ error: "replay" });
+
+	const username = dec(u);
+
+	if (!WHITELIST.includes(username)) {
+		return reply(res, n, false, "Fax - False", "");
+	}
+	return reply(res, n, true, "prem - True", makeToken());
+}
